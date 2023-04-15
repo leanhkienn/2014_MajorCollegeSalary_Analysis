@@ -1,0 +1,227 @@
+---
+title: "Lab 2 Reproduce"
+author: "Kien Le"
+date: "3/7/2023"
+output: html_document
+LINK to Original Post: "https://fivethirtyeight.com/features/the-economic-guide-to-picking-a-college-major/"
+LINK to the CSV dataset: "https://github.com/rfordatascience/tidytuesday/tree/master/data/2018/2018-10-16"
+---
+
+
+## INTRODUCTION
+
+In this article, the author analyzes the relationship between college majors and earnings potential, using data from the American Community Survey (ACS) and the U.S. Department of Education's College Scorecard. The article emphasizes the importance of considering the cost of education in relation to potential earnings, as well as the long-term outlook for job growth in various fields. The article provides a link to the github repository for the data sources but does not have much code or any graphs (just some aggregation). I will be conducting some steps for data wrangling as well as producing some graphs that show helpful analysis about college majors 9 years back.
+
+
+## ANALYSIS
+
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(scales)
+library(plotly)
+```
+
+Loading Data
+```{r}
+recent_grads <- read.csv("recent-grads.csv")
+head(recent_grads)
+```
+
+
+```{r}
+ggplot(recent_grads, aes(Median)) +
+  geom_histogram(color ="black", fill = 'pink')
+```
+> We can see that most of the majors make around 30k / year, I assume this data is 9 years ago, therefore the salary is a bit low compared to today. It can even be that this salary is right out of college too. There are also some majors' salary are very high too which is close to 100k or more.
+
+
+I'm making a new df to for capitalize the Major column and following Median column order.
+```{r}
+majors_processed <- recent_grads %>%
+  arrange(desc(Median)) %>%
+  mutate(Major = str_to_title(Major),
+         Major = fct_reorder(Major, Median))
+
+head(majors_processed)
+
+```
+
+
+I want to create a new df to see the Total Observations of each Major_Category:
+```{r}
+by_major_category <- majors_processed %>%
+  filter(!is.na(Total)) %>%
+  group_by(Major_category) %>%
+  summarize(Men = sum(Men),
+            Women = sum(Women),
+            Total = sum(Total),
+            College_jobs = sum(College_jobs),
+            Non_college_jobs = sum(Non_college_jobs),
+            MedianSalary = sum(Median * Sample_size) / sum(Sample_size)) %>%
+  mutate(ShareWomen = Women / Total)
+
+head(by_major_category)
+```
+
+
+Let's see the correlation between variables within the dataframe we just created.
+```{r}
+pairs(by_major_category[,2:8], lower.panel = NULL)
+```
+> Looks like there are no significant variables that are corelated with each other.
+
+
+Let's see which Major_category makes the most in terms of salary
+
+```{r}
+majors_processed %>%
+  group_by(Major_category) %>%
+  summarize(Median = median(Median)) %>%
+  mutate(Major_category = fct_reorder(Major_category, Median)) %>%
+  
+  ggplot(aes(Major_category, Median)) +
+  geom_col(fill = "lightgreen") +
+  scale_y_continuous(labels = dollar_format()) +
+  coord_flip()
+```
+
+
+What are the most common majors? (Add a bit colors)
+```{r}
+majors_processed %>%
+  mutate(Major = fct_reorder(Major, Total)) %>%
+  arrange(desc(Total)) %>%
+  head(20) %>%
+  
+  ggplot(aes(Major, Total, fill = Major_category)) +
+    geom_col() +
+    coord_flip() +
+    scale_y_continuous(labels = comma_format()) +
+    labs(x = "", y = "Total number of graduates") +
+    theme(legend.position = "none")
+  
+```
+
+
+Highest Earning Major (in detail)?
+```{r}
+majors_processed %>%
+  filter(Sample_size >= 100) %>%
+  head(20) %>%
+  ggplot(aes(Major, Median, color = Major_category)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = P25th, ymax = P75th)) +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = dollar_format()) +
+  coord_flip() +
+  labs(title = "What are the highest-earning majors?",
+       subtitle = "Top 20 majors with at least 100 graduates surveyed",
+       x = "",
+       y = "Median salary")
+```
+
+What are the lowest earning majors (in detail)?
+```{r}
+majors_processed %>%
+  filter(Sample_size >= 100) %>%
+  tail(20) %>%
+  ggplot(aes(Major, Median, color = Major_category)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = P25th, ymax = P75th)) +
+  expand_limits(y = 0) +
+  coord_flip()
+```
+
+
+
+## Follow-Up
+
+I added some color and make the graph interactive in terms of Median Salary and also order it make it easier to look and detect outliers.
+```{r}
+interactive_plot <- ggplot(majors_processed, aes(Major_category, Median, fill = Major_category)) +
+    geom_boxplot() +
+    expand_limits(y = 0) +
+    coord_flip() +
+    theme(legend.position = "none") 
+
+plotly::ggplotly(interactive_plot) 
+```
+
+
+Another interesting interactive plot that I also want to examine the proportion of genders for each major to see if there is something exciting.
+
+```{r}
+gen_inter <-  majors_processed %>%
+    arrange(desc(Total)) %>%
+    head(20) %>%
+    mutate(Major = fct_reorder(Major, Total)) %>%
+    gather(Gender, Number, Men, Women) %>%
+    
+    ggplot(aes(Major, Number, fill = Gender)) +
+    geom_col() +
+    coord_flip()
+
+plotly::ggplotly(gen_inter) 
+```
+
+
+
+```{r}
+ggplot(data = by_major_category, aes(x = Major_category, y = College_jobs, fill = College_jobs)) +               geom_bar(stat = "identity") + 
+  labs(x = "Major", y = "Amount of Jobs Need a Degree (2012)") + 
+  scale_y_continuous(labels = comma_format()) +
+  theme(legend.position = "none") +
+  coord_flip()
+```
+> Based on the bar chart, we can clearly sees that Education, Engineering and Health industries requires a College Degree since it requires a lot of expertise. I think it does not change until today also.
+
+
+
+Since I see there are some outliers, I want to see which major has high salary 9 years back.
+
+```{r}
+head(recent_grads %>%
+  arrange(desc(Median)) %>%
+  select(Major, Major_category, Median))
+```
+> Turns out it is Petroleum Engineering that has outliers. But there might be no surprise that the major has a very high salary and can be much higher nowadays.
+
+
+```{r}
+ggplot(majors_processed, aes(Sample_size, Median)) +
+  geom_point() +
+  geom_text(aes(label = Major), check_overlap = TRUE, vjust = 1, hjust = 1) +
+  scale_y_continuous()+
+  scale_x_log10() 
+```
+
+Another aspect I want to explore is the Unemployment Rate for each Major Category. I think this is quite interesting to see 9 years ago which industry has a highest unemployment rate.
+```{r}
+majors_processed %>%
+  group_by(Major_category) %>%
+  ggplot(aes(x = fct_reorder(Major_category, Unemployment_rate), y = Unemployment_rate)) +
+  geom_bar(stat = "identity", fill = "pink") +
+  coord_flip() +
+  labs(title = "Unemployment Rate by Major Category", x = "Major Category", y = "Unemployment Rate")
+```
+
+
+I  got to learned Linear Regression in one of my classes, I would like to apply the knowledge to the predictor which is: "ShareWomen" and the outcome as "Median".
+```{r}
+majors_processed %>%
+  select(Major, Total, ShareWomen, Sample_size, Median) %>%
+  lm(Median ~ ShareWomen, data = ., weights = Sample_size) %>%
+  summary()
+```
+> The analysis found that there is a statistically significant negative relationship between the proportion of female graduates and median earnings, meaning that as the proportion of female graduates in a major increases, the median earnings of graduates in that major decrease. Specifically, for each 1% increase in the proportion of female graduates, the median earnings decrease by an estimated $23,650, after adjusting for the sample size of each major.
+> The adjusted R-squared value of 0.3592 indicates that about 36% of the variance in median earnings can be explained by the proportion of female graduates, after taking into account the sample size of each major. The residual standard error of $123,000 suggests that there is still a lot of unexplained variability in the data, meaning that other factors besides the proportion of female graduates are likely also influencing median earnings.
+
+
+## DISCUSSION
+> Overall, I think this dataset is very interesting to explore and wrangle since it is 9 years ago. There are a lot of interesting findings such as the unemployment rate 9 years ago which falls into Engineering industry, this is also the highest paid and most of them requires a College degree. I also applied Linear Regression model above to see the relationship between Median Salary with the amount of Female Graduates. 
+
+> Reflection: I personally think this is an awesome activity to enhance and improve our R skills as well as data analysis skills. I also did learn new things throughout the course of exploring the dataset. What I would do different is that I would read and learn the dataset more coherently next time before dive into data wrangling and visualizing. Last but not least, I would choose appropriate color theme throughout the graphs in order to make the audience see comfortably.
+
+
+
